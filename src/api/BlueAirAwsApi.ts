@@ -77,6 +77,7 @@ export default class BlueAirAwsApi {
   private mutex: Mutex;
 
   private accessToken: string;
+  private idToken: string;
   private blueAirApiUrl: string;
 
   constructor(
@@ -97,6 +98,7 @@ export default class BlueAirAwsApi {
 
     this.last_login = 0;
     this.accessToken = '';
+    this.idToken = '';
   }
 
   async login(): Promise<void> {
@@ -104,10 +106,11 @@ export default class BlueAirAwsApi {
 
     const { token, secret } = await this.gigyaApi.getGigyaSession();
     const { jwt } = await this.gigyaApi.getGigyaJWT(token, secret);
-    const { accessToken } = await this.getAwsAccessToken(jwt);
+    const { accessToken, idToken } = await this.getAwsAccessToken(jwt);
 
     this.last_login = Date.now();
     this.accessToken = accessToken;
+    this.idToken = idToken;
 
     this.logger.debug('Logged in');
   }
@@ -200,7 +203,7 @@ export default class BlueAirAwsApi {
     // this.logger.debug(`setDeviceStatus response: ${JSON.stringify(response)}`);
   }
 
-  private async getAwsAccessToken(jwt: string): Promise<{ accessToken: string }> {
+  private async getAwsAccessToken(jwt: string): Promise<{ accessToken: string; idToken: string }> {
     this.logger.debug('Getting AWS access token...');
 
     const response = await this.apiCall('/login', undefined, 'POST', {
@@ -215,33 +218,66 @@ export default class BlueAirAwsApi {
     this.logger.debug('AWS access token received');
     return {
       accessToken: response.access_token,
+      idToken: response.id_token ?? jwt,
     };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async apiCall<T = any>(url: string, data?: string | object, method = 'POST', headers?: object, retries = 3): Promise<T> {
+  private async apiCall<T = any>(
+    url: string,
+    data?: string | object,
+    method = 'POST',
+    headers: Record<string, string> = {},
+    retries = 3,
+  ): Promise<T> {
     const release = await this.mutex.acquire();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), BLUEAIR_API_TIMEOUT);
     try {
+      const defaultHeaders: Record<string, string> = {
+        Accept: '*/*',
+        Connection: 'keep-alive',
+        'Accept-Encoding': 'gzip, deflate, br',
+        Authorization: `Bearer ${this.accessToken}`,
+        idtoken: this.idToken || this.accessToken,
+        ...headers,
+      };
+
+      let body: string | undefined;
+      if (data !== undefined) {
+        if (typeof data === 'string') {
+          body = data;
+        } else {
+          body = JSON.stringify(data);
+          if (!('Content-Type' in defaultHeaders) && !('content-type' in defaultHeaders)) {
+            defaultHeaders['Content-Type'] = 'application/json';
+          }
+        }
+      }
+
       const response = await fetch(`${this.blueAirApiUrl}${url}`, {
         method: method,
-        headers: {
-          Accept: '*/*',
-          Connection: 'keep-alive',
-          'Accept-Encoding': 'gzip, deflate, br',
-          Authorization: `Bearer ${this.accessToken}`,
-          idtoken: this.accessToken,
-          ...headers,
-        },
-        body: JSON.stringify(data),
+        headers: defaultHeaders,
+        body,
         signal: controller.signal,
       });
-      const json = await response.json();
-      if (response.status !== 200) {
-        throw new Error(`API call error with status ${response.status}: ${response.statusText}, ${JSON.stringify(json)}`);
+
+      const responseText = response.status === 204 ? '' : await response.text();
+
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(`API call error with status ${response.status}: ${response.statusText}, ${responseText || 'No body returned.'}`);
       }
-      return json as T;
+
+      if (!responseText) {
+        return undefined as T;
+      }
+
+      try {
+        return JSON.parse(responseText) as T;
+      } catch (error) {
+        this.logger.debug(`Failed to parse response as JSON for ${url}, returning raw text. Error: ${error}`);
+        return responseText as unknown as T;
+      }
     } catch (error) {
       if (retries > 0) {
         return this.apiCall(url, data, method, headers, retries - 1);
