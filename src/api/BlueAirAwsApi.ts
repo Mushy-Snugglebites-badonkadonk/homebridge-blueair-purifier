@@ -77,6 +77,7 @@ export default class BlueAirAwsApi {
   private mutex: Mutex;
 
   private accessToken: string;
+  private idToken: string;
   private blueAirApiUrl: string;
 
   constructor(
@@ -97,6 +98,7 @@ export default class BlueAirAwsApi {
 
     this.last_login = 0;
     this.accessToken = '';
+    this.idToken = '';
   }
 
   async login(): Promise<void> {
@@ -104,10 +106,11 @@ export default class BlueAirAwsApi {
 
     const { token, secret } = await this.gigyaApi.getGigyaSession();
     const { jwt } = await this.gigyaApi.getGigyaJWT(token, secret);
-    const { accessToken } = await this.getAwsAccessToken(jwt);
+    const { accessToken, idToken } = await this.getAwsAccessToken(jwt);
 
     this.last_login = Date.now();
     this.accessToken = accessToken;
+    this.idToken = idToken;
 
     this.logger.debug('Logged in');
   }
@@ -200,7 +203,7 @@ export default class BlueAirAwsApi {
     // this.logger.debug(`setDeviceStatus response: ${JSON.stringify(response)}`);
   }
 
-  private async getAwsAccessToken(jwt: string): Promise<{ accessToken: string }> {
+  private async getAwsAccessToken(jwt: string): Promise<{ accessToken: string; idToken: string }> {
     this.logger.debug('Getting AWS access token...');
 
     const response = await this.apiCall('/login', undefined, 'POST', {
@@ -215,6 +218,7 @@ export default class BlueAirAwsApi {
     this.logger.debug('AWS access token received');
     return {
       accessToken: response.access_token,
+      idToken: response.id_token ?? jwt,
     };
   }
 
@@ -231,7 +235,7 @@ export default class BlueAirAwsApi {
           Connection: 'keep-alive',
           'Accept-Encoding': 'gzip, deflate, br',
           Authorization: `Bearer ${this.accessToken}`,
-          idtoken: this.accessToken,
+          idtoken: this.idToken || this.accessToken,
           ...headers,
         },
         body: JSON.stringify(data),
