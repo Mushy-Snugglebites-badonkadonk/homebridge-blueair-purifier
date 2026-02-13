@@ -130,23 +130,34 @@ export class BlueAirDevice extends EventEmitter {
       return;
     }
 
-    this.emit('setState', { id: this.id, name: this.name, attribute, value });
-
     const release = await this.mutex.acquire();
 
     return new Promise<void>((resolve) => {
-      this.once('setStateDone', async (success) => {
+      const timeout = setTimeout(() => {
+        this.off('setStateDone', onSetStateDone);
         release();
+        resolve();
+      }, 15000);
+
+      const onSetStateDone = async (success: boolean) => {
+        clearTimeout(timeout);
         if (success) {
           const newState: Partial<BlueAirDeviceState> = { [attribute]: value };
           if (attribute === 'nightmode' && value === true) {
             newState['fanspeed'] = 11;
             newState['brightness'] = 0;
           }
+
+          release();
           await this.notifyStateUpdate(newState);
+        } else {
+          release();
         }
         resolve();
-      });
+      };
+
+      this.once('setStateDone', onSetStateDone);
+      this.emit('setState', { id: this.id, name: this.name, attribute, value });
     });
   }
 
