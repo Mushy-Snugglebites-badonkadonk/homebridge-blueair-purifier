@@ -1,6 +1,7 @@
 const { HomebridgePluginUiServer, RequestError } = require('@homebridge/plugin-ui-utils');
 const { defaultConfig, defaultDeviceConfig } = require('../dist/platformUtils.js');
 const BlueAirAwsApi = require('../dist/api/BlueAirAwsApi.js').default;
+const util = require('util');
 
 var _ = require('lodash');
 
@@ -61,6 +62,29 @@ class UiServer extends HomebridgePluginUiServer {
   config;
   api;
 
+  getErrorDetails(error) {
+    if (error instanceof Error) {
+      return error.stack || error.message;
+    }
+
+    return util.inspect(error, { depth: 4, breakLength: 120 });
+  }
+
+  getErrorCodeHint(error) {
+    const possibleCode = error?.code ?? error?.statusCode ?? error?.status;
+
+    if (possibleCode === undefined || possibleCode === null) {
+      return '';
+    }
+
+    const sanitizedCode = String(possibleCode).replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 40);
+    return sanitizedCode ? ` (code: ${sanitizedCode})` : '';
+  }
+
+  toClientRequestError(stableMessage, error) {
+    return new RequestError(`${stableMessage}${this.getErrorCodeHint(error)}`);
+  }
+
   constructor() {
     super();
     // Obtain the plugin configuration from homebridge config JSON file.
@@ -95,9 +119,8 @@ class UiServer extends HomebridgePluginUiServer {
 
         return devices;
       } catch (e) {
-        const msg = e instanceof Error ? e.stack : e;
-        this.logger.error(`Device discovery failed:\n${msg}`);
-        throw new RequestError(`Device discovery failed:\n${msg}`);
+        this.logger.error(`Device discovery failed:\n${this.getErrorDetails(e)}`);
+        throw this.toClientRequestError('Unable to discover Blueair devices. Please verify your credentials/region and try again.', e);
       }
     });
 
@@ -105,9 +128,8 @@ class UiServer extends HomebridgePluginUiServer {
       try {
         return await this.api.getDeviceStatus(accountUuid, uuids);
       } catch (e) {
-        const msg = e instanceof Error ? e.stack : e;
-        this.logger.error(`Failed to get initial device states:\n${msg}`);
-        throw new RequestError(`Failed to get initial device states:\n${msg}`);
+        this.logger.error(`Failed to get initial device states:\n${this.getErrorDetails(e)}`);
+        throw this.toClientRequestError('Unable to fetch initial Blueair device states. Please try again.', e);
       }
     });
 
