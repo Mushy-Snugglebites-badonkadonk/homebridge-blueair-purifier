@@ -91,7 +91,14 @@ class UiServer extends HomebridgePluginUiServer {
     const config = require(this.homebridgeConfigPath).platforms.find((obj) => obj.platform === 'blueair-purifier');
     this.logger = new Logger(config?.uiDebug ? config.uiDebug : false);
     this.logger.info('Custom UI created.');
-    this.logger.debug(`ENV:\n${JSON.stringify(process.env, null, 2)}`);
+    const debugEnvironment = {
+      nodeVersion: process.version,
+      homebridgeVersion: process.env.HOMEBRIDGE_VERSION,
+      nodeEnv: process.env.NODE_ENV,
+      platform: process.platform,
+      arch: process.arch,
+    };
+    this.logger.debug(`Runtime metadata:\n${JSON.stringify(_.pickBy(debugEnvironment, Boolean), null, 2)}`);
 
     this.onRequest('/mergeToDefault', async ({ config }) => {
       _.defaultsDeep(config, defaultConfig);
