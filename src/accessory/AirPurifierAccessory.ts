@@ -151,8 +151,14 @@ export class AirPurifierAccessory {
           this.service.updateCharacteristic(this.platform.Characteristic.CurrentAirPurifierState, this.getCurrentAirPurifierState());
           break;
         case 'filterusage':
-          this.service.updateCharacteristic(this.platform.Characteristic.FilterChangeIndication, this.getFilterChangeIndication());
-          this.service.updateCharacteristic(this.platform.Characteristic.FilterLifeLevel, this.getFilterLifeLevel());
+          this.filterMaintenanceService?.updateCharacteristic(
+            this.platform.Characteristic.FilterChangeIndication,
+            this.getFilterChangeIndication(),
+          );
+          this.filterMaintenanceService?.updateCharacteristic(
+            this.platform.Characteristic.FilterLifeLevel,
+            this.getFilterLifeLevel(),
+          );
           break;
         case 'temperature':
           this.service.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, this.getCurrentTemperature());
